@@ -12,10 +12,6 @@ import requests
 
 load_dotenv()
 
-
-#
-##
-### Configuration
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = os.getenv("QDRANT_PORT", "6333")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "demo")
@@ -26,10 +22,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    # Allows access from your React app
     allow_origins=[
-        "http://client:3000",
-        "http://localhost:3000",
+        "http://client:3000","http://localhost:3000",
         "https://salmon-moss-08b81541e.5.azurestaticapps.net",
     ],
     allow_credentials=True,
@@ -37,10 +31,12 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+class TextInput(BaseModel):
+    text: str
+    apiKey: str
 
-#
-##
-### Helper functions for querying Qdrant database
+# Utils
+
 def does_collection_exist(protocol, hostname, port, collection_name):
     """Check if a specific collection exists by fetching all collections and searching for the name."""
     url = f"{protocol}://{hostname}:{port}/collections"
@@ -59,29 +55,15 @@ def does_collection_exist(protocol, hostname, port, collection_name):
         return False
 
 
-#
-##
-### API routes
-
-
-@app.get("/debug")
-async def debug():
-    return {"env": dict(os.environ)}
-
-
-class TextInput(BaseModel):
-    text: str
-    apiKey: str
-
+# Routes
 
 @app.post("/api/generate-and-store-embeddings/")
 async def generate_embeddings(input: TextInput):
     try:
-        # https://platform.openai.com/account/api-keys
-        # Generate embeddings using OpenAI's API
         client = OpenAI(api_key=input.apiKey)
         response = client.embeddings.create(
-            model="text-embedding-3-small", input=input.text
+            model="text-embedding-3-small",
+            input=input.text
         )
         embeddings = (
             response["data"][0]["embedding"]
@@ -108,23 +90,16 @@ async def generate_embeddings(input: TextInput):
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
-        # Prepare a point for Qdrant insertion
         point = PointStruct(
             id=vector_id, vector=embeddings, payload={"text": input.text}
         )
 
-        # Insert the point into Qdrant
         qdrant_client.upsert(collection_name=COLLECTION_NAME, points=[point])
         return {"message": "Embeddings generated and stored successfully"}
 
     except Exception as e:
         print(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# @app.options("/api/retrieve-and-generate-response/")
-# async def options_retrieve_and_generate_response():
-#    return {"Allow": "POST, OPTIONS"}
 
 
 @app.post("/api/retrieve-and-generate-response/")
@@ -140,7 +115,6 @@ async def retrieve_and_generate_response(input: TextInput):
             else response.data[0].embedding
         )
 
-        # Search for the embeddings in Qdrant
         search_result = qdrant_client.search(
             collection_name=COLLECTION_NAME, query_vector=embeddings, limit=3
         )
