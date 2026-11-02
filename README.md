@@ -1,66 +1,44 @@
-# FastAPI RAG Project
+# Tiny RAG
 
-A lightweight Retrieval-Augmented Generation (RAG) application that stores text as embeddings in Qdrant and uses OpenAI to answer questions with the most relevant stored context.
+A very small RAG app that reads sample files from the repo `data/` folder, embeds them locally, stores them in Qdrant, and serves a simple search UI.
 
-## What this project provides
-
-This project gives you a simple full-stack app for:
-
-- storing text snippets as vector embeddings
-- retrieving the most relevant documents from Qdrant
-- sending those documents as context to an LLM
-- generating grounded answers in a web interface
-
-In short, it turns your text data into a mini document search + Q&A system.
-
-## Architecture
-
-- Frontend: React app served on port 3000
-- Backend: FastAPI API served on port 8000
-- Vector database: Qdrant on port 6333
-- AI: OpenAI embeddings + chat completions
-
-## Features
-
-- Web UI for entering your OpenAI API key
-- Generate embeddings from text and store them in Qdrant
-- Retrieve similar documents using vector similarity search
-- Ask questions and get answers grounded in stored content
-- Docker Compose setup for running the full stack locally
-
-## Prerequisites
-
-- Docker and Docker Compose
-- An OpenAI API key
-
-## Run locally
+## Run
 
 ```bash
 docker compose up --build
 ```
 
-Then open:
+Open:
+- http://localhost:8000
+- http://localhost:6333/dashboard
 
-- http://localhost:3000 - web client
-- http://localhost:6333/dashboard - Qdrant dashboard
+## Components
+- FastAPI backend on port 8000
+- Qdrant vector database on port 6333
+- Local embeddings with `fastembed`
+- User documents from `data/`
 
-## Project flow
+## Startup behavior
 
-1. Enter your OpenAI API key in the web app.
-2. Submit text to generate and store embeddings.
-3. Ask a question.
-4. The backend embeds the question, searches Qdrant for similar content, and sends the matching documents to GPT.
-5. The app returns the generated answer and the relevant source documents.
+On container startup, the app reads the files in `/data` and indexes them into Qdrant automatically.
 
-## API endpoints
+If you want to reindex manually:
 
-The backend exposes:
+```bash
+docker compose exec server python scripts/load_sample_data.py
+```
 
-- `POST /api/generate-and-store-embeddings/`
-- `POST /api/retrieve-and-generate-response/`
+## Manual injection from the example folder
+
+You can also seed a small manual Qdrant demo directly from the example directory:
+
+```bash
+cd example
+python city_demo.py --action seed --collection example_demo
+```
+
+The script honors the same `QDRANT_HOST`, `QDRANT_PORT`, and `QDRANT_COLLECTION` environment variables used by the app, so it works reliably from `/example` without assuming a different setup.
 
 ## Notes
-
-- The default Qdrant collection name is `demo`.
-- The app uses OpenAI `text-embedding-3-small` for embeddings and `gpt-4-turbo` for generation.
-- The frontend currently prompts for the API key in the UI before running the RAG flow.
+- No OpenAI API key required
+- No extra services beyond FastAPI and Qdrant

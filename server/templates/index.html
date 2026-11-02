@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document RAG</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #111827;
+            --panel: #1f2937;
+            --text: #f9fafb;
+            --muted: #d1d5db;
+            --accent: #60a5fa;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1rem 4rem;
+        }
+
+        h1 {
+            margin-bottom: 0.4rem;
+        }
+
+        p {
+            color: var(--muted);
+        }
+
+        form {
+            display: flex;
+            gap: 0.75rem;
+            margin: 2rem 0 1rem;
+        }
+
+        input {
+            flex: 1;
+            padding: 0.9rem 1rem;
+            border-radius: 10px;
+            border: 1px solid #374151;
+            background: var(--panel);
+            color: var(--text);
+        }
+
+        button {
+            border: none;
+            border-radius: 10px;
+            background: var(--accent);
+            color: #0f172a;
+            font-weight: bold;
+            padding: 0.9rem 1.2rem;
+            cursor: pointer;
+        }
+
+        .results {
+            margin-top: 2rem;
+        }
+
+        .result {
+            background: var(--panel);
+            border: 1px solid #374151;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Document Search</h1>
+        <p>Ask a question about your indexed documents and find the most relevant matches.</p>
+
+        <form id="search-form">
+            <input id="query" type="text" value="What information is in these documents?" aria-label="Question" />
+            <button type="submit">Search</button>
+        </form>
+
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('search-form');
+        const queryInput = document.getElementById('query');
+        const resultsEl = document.getElementById('results');
+
+        async function fetchResults(query) {
+            const response = await fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
+            });
+            return response.json();
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const query = queryInput.value.trim();
+            if (!query) return;
+
+            resultsEl.innerHTML = '<p>Searching…</p>';
+            const data = await fetchResults(query);
+
+            if (!data.results || data.results.length === 0) {
+                resultsEl.innerHTML = '<p>No matching content found.</p>';
+                return;
+            }
+
+            resultsEl.innerHTML = data.results.map((result) => `
+          <article class="result">
+            <div class="meta">
+              <span>${result.source}</span>
+              <span>score: ${result.score}</span>
+            </div>
+            <div>${result.text}</div>
+          </article>
+        `).join('');
+        });
+
+        form.dispatchEvent(new Event('submit'));
+    </script>
+</body>
+
+</html>
