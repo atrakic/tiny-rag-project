@@ -15,6 +15,17 @@ services:
     depends_on:
       - qdrant
 
+  client:
+    build: ./client
+    restart: unless-stopped
+    container_name: client
+    environment:
+      REACT_APP_API_URL: http://localhost:8000/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
   qdrant:
     image: qdrant/qdrant:v1.13.0
     restart: unless-stopped

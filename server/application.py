@@ -5,15 +5,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from fastapi import Body
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from fastembed import TextEmbedding
-
-BASE_DIR = Path(__file__).resolve().parent
-HTML_PATH = BASE_DIR / "templates" / "index.html"
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
@@ -51,11 +47,6 @@ def ensure_collection() -> None:
 @app.on_event("startup")
 def startup() -> None:
     ensure_collection()
-
-
-@app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
-    return HTMLResponse(HTML_PATH.read_text(encoding="utf-8"))
 
 
 @app.get("/health")
