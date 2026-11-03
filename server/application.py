@@ -1,11 +1,11 @@
 import os
 import re
 from difflib import SequenceMatcher
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Body
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
@@ -33,30 +33,27 @@ class SearchRequest(BaseModel):
     query: str
 
 
-def ensure_collection() -> None:
-    collections = qdrant_client.get_collections().collections
-    if any(collection.name == COLLECTION_NAME for collection in collections):
-        return
-
-    qdrant_client.create_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-    )
-
-
 @app.on_event("startup")
 def startup() -> None:
-    ensure_collection()
+    pass
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    try:
+        qdrant_client.get_collections()
+        return {"status": "ok", "qdrant": "ok"}
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "qdrant": "unavailable", "detail": str(exc)},
+        )
 
 
 def fuzzy_search_fallback(query: str) -> list[dict]:
     query_lower = query.strip().lower()
-    if not query_lower:
+    cleaned_query = re.sub(r"[^a-z0-9]+", "", query_lower)
+    if not cleaned_query or len(cleaned_query) < 3:
         return []
 
     points, _ = qdrant_client.scroll(
@@ -98,6 +95,10 @@ def fuzzy_search_fallback(query: str) -> list[dict]:
 
 @app.post("/api/search")
 def search_documents(payload: SearchRequest = Body(...)) -> dict:
+    cleaned_query = re.sub(r"[^a-z0-9]+", "", payload.query.strip().lower())
+    if len(cleaned_query) < 3:
+        return {"results": []}
+
     query_vector = next(iter(embedding_model.embed([payload.query])))
     query_vector = [float(value) for value in query_vector]
 

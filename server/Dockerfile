@@ -9,7 +9,6 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 ENV PYTHONDONTWRITEBYTECODE=1
-# Turns off buffering for easier container logging
 ENV PYTHONUNBUFFERED=1
 
 ENV PATH="/venv/bin:$PATH"
