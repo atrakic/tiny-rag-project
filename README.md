@@ -1,47 +1,71 @@
-# Tiny RAG
+# Tiny Local RAG
 
-A small RAG app that reads files from the repo `data/` folder, embeds them locally, stores them in Qdrant, and exposes them through a simple search API.
+A lightweight local RAG app for chatting with your own documents. Place files in the `data/` directory, index them locally with FastEmbed, store the vectors in Qdrant, and ask questions about the content through a simple chat interface.
 
-## Run
+
+## What this app does
+
+- Reads all supported files from `data/`
+- Embeds document text locally
+- Stores vectors in Qdrant
+- Answers questions about your documents through a chat-style UI
+- Stays generic and works with your own data, not a fixed demo dataset
+
+## Supported data types
+
+The ingestion script handles common text-based and document files, including:
+
+- `.txt`
+- `.md`
+- `.csv`
+- `.json`
+- `.log`
+- `.pdf`
+
+## Run the app
+
+### Prerequisite
+
+Add your files to the `data/` directory before starting the app.
+
+### Start the app
 
 ```bash
 docker compose up --build
 ```
 
-Open:
-- http://localhost:3000 for the React client UI
-- http://localhost:8000/docs for the FastAPI API docs
-- http://localhost:6333/dashboard for Qdrant
+Then open:
 
-## Components
-- React client on port 3000
+- http://localhost:3000 for the React client
+- http://localhost:8000/docs read API docs
+- http://localhost:6333/dashboard for the Qdrant dashboard
+
+
+## Architecture
+
+- React frontend on port 3000
 - FastAPI backend on port 8000
 - Qdrant vector database on port 6333
-- Local embeddings with `fastembed`
-- User documents from `data/`
+- Local embeddings using `fastembed`
+- User content mounted from `./data` into the server container
 
-## Startup behavior
+## Reindex manually
 
-On container startup, the server reads the files in `/data` and indexes them into Qdrant automatically.
-
-If you want to reindex manually:
+If you change files in `data/` and want to refresh the index:
 
 ```bash
-docker compose exec server python scripts/load_sample_data.py
+docker compose exec server python scripts/load_user_data.py
 ```
 
-## Manual injection from the example folder
+## Example questions
 
-You can also seed a small manual Qdrant demo directly from the example directory:
+Try asking things like:
 
-```bash
-cd example
-python city_demo.py --action seed --collection example_demo
-```
-
-The script honors the same `QDRANT_HOST`, `QDRANT_PORT`, and `QDRANT_COLLECTION` environment variables used by the app, so it works reliably from `/example` without assuming a different setup.
+- "What are the main topics in this data?"
+- "Summarize contents in these documents."
 
 ## Notes
-- No OpenAI API key required
-- UI is served by the React app; backend is API-only
-- The legacy server-side template is not used in this split architecture
+
+- No OpenAI or external API key is required
+- The app is intentionally generic and works for user-owned files, not a fixed demo dataset
+- The app only indexes the files in `data/`; it does not rely on sample/default content

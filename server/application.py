@@ -93,6 +93,27 @@ def fuzzy_search_fallback(query: str) -> list[dict]:
     return matches[:5]
 
 
+def build_answer_from_results(query: str, results: list[dict]) -> str:
+    if not results:
+        return "I could not find enough relevant information in your indexed documents for that question. Try asking about a topic, person, file, or subject that exists in your data."
+
+    snippets = []
+    for item in results[:3]:
+        text = str(item.get("text", "")).strip()
+        if text:
+            snippets.append(text[:350].rstrip() + ("..." if len(text) > 350 else ""))
+
+    if not snippets:
+        return "I found matching records, but they do not contain readable text to summarize."
+
+    context = "\n\n".join(f"- {snippet}" for snippet in snippets)
+    return (
+        f"Based on your indexed data, here is what I found for '{query}':\n\n"
+        f"{context}\n\n"
+        "These passages are the most relevant matches from your documents."
+    )
+
+
 @app.post("/api/search")
 def search_documents(payload: SearchRequest = Body(...)) -> dict:
     cleaned_query = re.sub(r"[^a-z0-9]+", "", payload.query.strip().lower())
@@ -125,3 +146,25 @@ def search_documents(payload: SearchRequest = Body(...)) -> dict:
         results = fuzzy_matches
 
     return {"results": results}
+
+
+@app.post("/api/chat")
+def chat_documents(payload: SearchRequest = Body(...)) -> dict:
+    cleaned_query = re.sub(r"[^a-z0-9]+", "", payload.query.strip().lower())
+    if len(cleaned_query) < 3:
+        return {"answer": "Please ask a more specific question about your documents.", "sources": []}
+
+    search_response = search_documents(payload)
+    results = search_response.get("results", [])
+    answer = build_answer_from_results(payload.query, results)
+    return {
+        "answer": answer,
+        "sources": [
+            {
+                "source": item.get("source", "unknown"),
+                "score": item.get("score", 0),
+                "text": item.get("text", ""),
+            }
+            for item in results[:3]
+        ],
+    }
