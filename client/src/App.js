@@ -67,7 +67,7 @@ function App() {
       <div className="chat-panel">
         <header className="chat-header">
           <h1>Tiny Local RAG</h1>
-          <p>Ask questions about your documents.</p>
+          <p>Ask questions about your data.</p>
         </header>
 
         <div className="message-list">
@@ -103,7 +103,7 @@ function App() {
             type="text"
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask about your documents... ex: (summarize contents in these documents)"
+            placeholder="Ask about your documents... ex: summarize contents"
             aria-label="Ask about your documents"
           />
           <button type="submit" disabled={isLoading}>
