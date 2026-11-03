@@ -1,145 +1,170 @@
-from dotenv import load_dotenv
+import os
+import re
+from difflib import SequenceMatcher
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from openai import OpenAI
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, SearchParams, Distance, VectorParams
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-import os, uuid
-import requests
-
-load_dotenv()
+from fastapi import Body
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
+from fastembed import TextEmbedding
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = os.getenv("QDRANT_PORT", "6333")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "demo")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "docs")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
-qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, check_compatibility=False)
+embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
 
-app = FastAPI()
-
+app = FastAPI(title="Document RAG")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://client:3000","http://localhost:3000",
-        "https://salmon-moss-08b81541e.5.azurestaticapps.net",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-class TextInput(BaseModel):
-    text: str
-    apiKey: str
 
-# Utils
+class SearchRequest(BaseModel):
+    query: str
 
-def does_collection_exist(protocol, hostname, port, collection_name):
-    """Check if a specific collection exists by fetching all collections and searching for the name."""
-    url = f"{protocol}://{hostname}:{port}/collections"
+
+@app.on_event("startup")
+def startup() -> None:
+    pass
+
+
+@app.get("/health")
+def health() -> dict:
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        # Parse the collections list from the nested 'result' -> 'collections' structure
-        existing_collection = [
-            collection["name"]
-            for collection in data.get("result", {}).get("collections", [])
+        qdrant_client.get_collections()
+        return {"status": "ok", "qdrant": "ok"}
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "qdrant": "unavailable", "detail": str(exc)},
+        )
+
+
+def fuzzy_search_fallback(query: str) -> list[dict]:
+    query_lower = query.strip().lower()
+    cleaned_query = re.sub(r"[^a-z0-9]+", "", query_lower)
+    if not cleaned_query or len(cleaned_query) < 3:
+        return []
+
+    points, _ = qdrant_client.scroll(
+        collection_name=COLLECTION_NAME,
+        limit=100,
+        with_payload=True,
+        with_vectors=False,
+    )
+
+    matches = []
+    for point in points:
+        payload = point.payload or {}
+        text = payload.get("text", "")
+        candidate_text = " ".join(part for part in [payload.get("city", ""), text] if part)
+        if not candidate_text:
+            continue
+
+        candidate_tokens = [
+            token for token in re.split(r"[^a-z0-9]+", candidate_text.lower()) if len(token) > 2
         ]
-        return collection_name in existing_collection
-    except requests.RequestException as e:
-        print(f"HTTP Request failed: {e}")
-        return False
+        if not candidate_tokens:
+            continue
 
-
-# Routes
-
-@app.post("/api/generate-and-store-embeddings/")
-async def generate_embeddings(input: TextInput):
-    try:
-        client = OpenAI(api_key=input.apiKey)
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=input.text
+        ratio = max(
+            SequenceMatcher(None, query_lower, token).ratio()
+            for token in candidate_tokens
         )
-        embeddings = (
-            response["data"][0]["embedding"]
-            if isinstance(response, dict)
-            else response.data[0].embedding
-        )
-        vector_id = str(uuid.uuid4())
+        if ratio >= 0.7:
+            matches.append({
+                "id": str(point.id),
+                "score": round(ratio, 4),
+                "source": payload.get("source", "unknown"),
+                "text": text,
+            })
 
-        collection_name = COLLECTION_NAME
-        collection_exists = does_collection_exist(
-            "http", QDRANT_HOST, QDRANT_PORT, collection_name
-        )
-
-        if not collection_exists:
-            try:
-                qdrant_client.create_collection(
-                    collection_name=COLLECTION_NAME,
-                    vectors_config=VectorParams(
-                        size=1536,
-                        distance=Distance.COSINE,
-                    ),
-                )
-                print(f"New collection {COLLECTION_NAME} is created successfully")
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        point = PointStruct(
-            id=vector_id, vector=embeddings, payload={"text": input.text}
-        )
-
-        qdrant_client.upsert(collection_name=COLLECTION_NAME, points=[point])
-        return {"message": "Embeddings generated and stored successfully"}
-
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    matches.sort(key=lambda item: item["score"], reverse=True)
+    return matches[:5]
 
 
-@app.post("/api/retrieve-and-generate-response/")
-async def retrieve_and_generate_response(input: TextInput):
-    try:
-        client = OpenAI(api_key=input.apiKey)
-        response = client.embeddings.create(
-            model="text-embedding-3-small", input=input.text
-        )
-        embeddings = (
-            response["data"][0]["embedding"]
-            if isinstance(response, dict)
-            else response.data[0].embedding
-        )
+def build_answer_from_results(query: str, results: list[dict]) -> str:
+    if not results:
+        return "I could not find enough relevant information in your indexed documents for that question. Try asking about a topic, person, file, or subject that exists in your data."
 
-        search_result = qdrant_client.search(
-            collection_name=COLLECTION_NAME, query_vector=embeddings, limit=3
+    snippets = []
+    for item in results[:3]:
+        text = str(item.get("text", "")).strip()
+        if text:
+            snippets.append(text[:350].rstrip() + ("..." if len(text) > 350 else ""))
+
+    if not snippets:
+        return "I found matching records, but they do not contain readable text to summarize."
+
+    context = "\n\n".join(f"- {snippet}" for snippet in snippets)
+    return (
+        f"Based on your indexed data, here is what I found for '{query}':\n\n"
+        f"{context}\n\n"
+        "These passages are the most relevant matches from your documents."
+    )
+
+
+@app.post("/api/search")
+def search_documents(payload: SearchRequest = Body(...)) -> dict:
+    cleaned_query = re.sub(r"[^a-z0-9]+", "", payload.query.strip().lower())
+    if len(cleaned_query) < 3:
+        return {"results": []}
+
+    query_vector = next(iter(embedding_model.embed([payload.query])))
+    query_vector = [float(value) for value in query_vector]
+
+    hits = qdrant_client.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=query_vector,
+        limit=5,
+        with_payload=True,
+    )
+
+    results = []
+    for hit in hits:
+        results.append(
+            {
+                "id": str(hit.id),
+                "score": round(float(hit.score), 4),
+                "source": hit.payload.get("source", "unknown"),
+                "text": hit.payload.get("text", ""),
+            }
         )
 
-        documents = (
-            [{"text": doc.payload["text"], "score": doc.score} for doc in search_result]
-            if search_result
-            else []
-        )
+    fuzzy_matches = fuzzy_search_fallback(payload.query)
+    if fuzzy_matches and (not results or fuzzy_matches[0]["score"] >= max((item["score"] for item in results), default=0.0) + 0.2):
+        results = fuzzy_matches
 
-        prompt = f"Question: {input.text}\n\n" + "\n\n".join(
-            [f"Document {i+1}: {doc['text']}" for i, doc in enumerate(documents)]
-        )
+    return {"results": results}
 
-        completion = client.chat.completions.create(
-            model="gpt-4-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        return {
-            "response": completion.choices[0].message.content,
-            "documents": documents,
-        }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/api/chat")
+def chat_documents(payload: SearchRequest = Body(...)) -> dict:
+    cleaned_query = re.sub(r"[^a-z0-9]+", "", payload.query.strip().lower())
+    if len(cleaned_query) < 3:
+        return {"answer": "Please ask a more specific question about your documents.", "sources": []}
+
+    search_response = search_documents(payload)
+    results = search_response.get("results", [])
+    answer = build_answer_from_results(payload.query, results)
+    return {
+        "answer": answer,
+        "sources": [
+            {
+                "source": item.get("source", "unknown"),
+                "score": item.get("score", 0),
+                "text": item.get("text", ""),
+            }
+            for item in results[:3]
+        ],
+    }

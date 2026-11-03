@@ -8,7 +8,7 @@ function ResponseDisplay({ response }) {
         <h2>Search results:</h2>
         <p>{response}</p>
       </div>
-    ) : null  // Render nothing if there's no response
+    ) : null
   );
 }
 

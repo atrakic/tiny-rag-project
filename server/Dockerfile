@@ -1,25 +1,15 @@
-FROM debian:11-slim AS build
-RUN apt-get update && \
-    apt-get install --no-install-suggests --no-install-recommends --yes python3-venv gcc libpython3-dev && \
-    python3 -m venv /venv && \
-    /venv/bin/pip install --upgrade pip setuptools wheel
+FROM python:3.12-slim
 
-FROM build AS build-venv
-COPY requirements.txt /requirements.txt
-RUN /venv/bin/pip install --disable-pip-version-check -r /requirements.txt
-
-
-FROM gcr.io/distroless/python3-debian11 as final
-LABEL maintainer="Admir Trakic <atrakic@users.noreply.github.com>"
 WORKDIR /app
 
-COPY --from=build-venv /venv /venv
-COPY application.py gunicorn.conf.py oryx.env ./
+COPY requirements.txt ./requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --disable-pip-version-check -r ./requirements.txt
 
-# Keeps Python from generating .pyc files in the container
+COPY . .
+
 ENV PYTHONDONTWRITEBYTECODE=1
-# Turns off buffering for easier container logging
 ENV PYTHONUNBUFFERED=1
 
 ENV PATH="/venv/bin:$PATH"
-ENTRYPOINT [ "uvicorn",  "application:app", "--host", "0.0.0.0", "--port", "8000" ]
+CMD ["sh", "-c", "python scripts/load_user_data.py && exec uvicorn application:app --host 0.0.0.0 --port 8000"]

@@ -1,13 +1,16 @@
 import argparse
 import os
 
+from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 DEFAULT_HOST = os.getenv("QDRANT_HOST", "localhost")
 DEFAULT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
-DEFAULT_COLLECTION = os.getenv("COLLECTION_NAME", "demo")
-DEFAULT_VECTOR_SIZE = int(os.getenv("VECTOR_SIZE", "4"))
+DEFAULT_COLLECTION = os.getenv("QDRANT_COLLECTION") or os.getenv("COLLECTION_NAME", "example_demo")
+DEFAULT_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+DEFAULT_VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE") or os.getenv("VECTOR_SIZE", "384"))
+EMBEDDING_MODEL = TextEmbedding(model_name=DEFAULT_EMBEDDING_MODEL)
 
 
 def parse_args():
@@ -35,7 +38,7 @@ def parse_args():
 
 
 def get_client(host: str, port: int) -> QdrantClient:
-    return QdrantClient(host=host, port=port)
+    return QdrantClient(host=host, port=port, check_compatibility=False)
 
 
 def ensure_collection(client: QdrantClient, collection_name: str, vector_size: int):
@@ -62,14 +65,26 @@ def delete_collection(client: QdrantClient, collection_name: str):
 
 
 def demo_points():
-    return [
-        PointStruct(id=1, vector=[0.05, 0.61, 0.76, 0.74], payload={"city": "Berlin"}),
-        PointStruct(id=2, vector=[0.19, 0.81, 0.75, 0.11], payload={"city": "London"}),
-        PointStruct(id=3, vector=[0.36, 0.55, 0.47, 0.94], payload={"city": "Moscow"}),
-        PointStruct(id=4, vector=[0.18, 0.01, 0.85, 0.80], payload={"city": "New York"}),
-        PointStruct(id=5, vector=[0.24, 0.18, 0.22, 0.44], payload={"city": "Beijing"}),
-        PointStruct(id=6, vector=[0.35, 0.08, 0.11, 0.44], payload={"city": "Mumbai"}),
+    city_texts = [
+        ("Berlin", "Berlin is the capital city of Germany and a major European hub."),
+        ("London", "London is the capital of the United Kingdom and a global financial center."),
+        ("Moscow", "Moscow is the capital city of Russia and a major political and cultural center."),
+        ("New York", "New York is a large city in the United States known for business and culture."),
+        ("Beijing", "Beijing is the capital of China and a major center for government and technology."),
+        ("Mumbai", "Mumbai is a major Indian city on the west coast with a large economy and port."),
     ]
+
+    vectors = list(EMBEDDING_MODEL.embed([text for _, text in city_texts]))
+    points = []
+    for index, ((city, text), vector) in enumerate(zip(city_texts, vectors), start=1):
+        points.append(
+            PointStruct(
+                id=index,
+                vector=[float(value) for value in vector],
+                payload={"city": city, "text": text},
+            )
+        )
+    return points
 
 
 def seed_demo_data(client: QdrantClient, collection_name: str):
