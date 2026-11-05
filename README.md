@@ -2,15 +2,6 @@
 
 A lightweight local RAG app for chatting with your own documents. Place files in the `data/` directory, index them locally with FastEmbed, store the vectors in Qdrant, and ask questions about the content through a simple chat interface.
 
-
-## What this app does
-
-- Reads all supported files from `data/`
-- Embeds document text locally
-- Stores vectors in Qdrant
-- Answers questions about your documents through a chat-style UI
-- Stays generic and works with your own data, not a fixed demo dataset
-
 ## Supported data types
 
 The ingestion script handles common text-based and document files, including:
